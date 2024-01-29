@@ -73,6 +73,8 @@ def run_training_loop(params):
     # Observation and action sizes
     ob_dim = env.observation_space.shape[0]
     ac_dim = env.action_space.shape[0]
+    print('action dim is %d', ac_dim)
+    print('ob dim is %d', ob_dim)
 
     # simulation timestep, will be used for video saving
     if 'model' in dir(env):
@@ -115,6 +117,7 @@ def run_training_loop(params):
 
     for itr in range(params['n_iter']):
         print("\n\n********** Iteration %i ************"%itr)
+        # The iter is the one interaction loop between agents and env. It's not the training steps.
 
         # decide if videos should be rendered/logged at this iteration
         log_video = ((itr % params['video_log_freq'] == 0) and (params['video_log_freq'] != -1))
@@ -152,16 +155,20 @@ def run_training_loop(params):
         training_logs = []
         for _ in range(params['num_agent_train_steps_per_iter']):
 
-          # TODO: sample some data from replay_buffer
-          # HINT1: how much data = params['train_batch_size']
-          # HINT2: use np.random.permutation to sample random indices
-          # HINT3: return corresponding data points from each array (i.e., not different indices from each array)
-          # for imitation learning, we only need observations and actions.  
-          ob_batch, ac_batch = TODO
+            # TODO: sample some data from replay_buffer
+            # HINT1: how much data = params['train_batch_size']
+            # HINT2: use np.random.permutation to sample random indices
+            # HINT3: return corresponding data points from each array (i.e., not different indices from each array)
+            # for imitation learning, we only need observations and actions.
+            batch_size = params['train_batch_size']
+            whole_shuffled_indices = np.random.permutation(replay_buffer.__len__())
+            ob_batch = replay_buffer.obs[whole_shuffled_indices[0:batch_size]]
+            ac_batch = replay_buffer.acs[whole_shuffled_indices[0:batch_size]]
+            # ob_batch, ac_batch = TODO
 
-          # use the sampled data to train an agent
-          train_log = actor.update(ob_batch, ac_batch)
-          training_logs.append(train_log)
+            # use the sampled data to train an agent
+            train_log = actor.update(ob_batch, ac_batch)
+            training_logs.append(train_log)
 
         # log/save
         print('\nBeginning logging procedure...')
@@ -173,6 +180,7 @@ def run_training_loop(params):
 
             # save videos
             if eval_video_paths is not None:
+                print('\nDump the video')
                 logger.log_paths_as_videos(
                     eval_video_paths, itr,
                     fps=fps,

@@ -46,7 +46,7 @@ def build_mlp(
     in_size = input_size
     for _ in range(n_layers):
         layers.append(nn.Linear(in_size, size))
-        layers.append(nn.Tanh())
+        layers.append(nn.ReLU())
         in_size = size
     layers.append(nn.Linear(in_size, output_size))
 
@@ -79,6 +79,7 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
                  n_layers,
                  size,
                  learning_rate=1e-4,
+                 apply_uncertainty=False,
                  training=True,
                  nn_baseline=False,
                  **kwargs
@@ -93,6 +94,7 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
         self.learning_rate = learning_rate
         self.training = training
         self.nn_baseline = nn_baseline
+        self.apply_uncertainty = apply_uncertainty
 
         self.mean_net = build_mlp(
             input_size=self.ob_dim,
@@ -100,15 +102,35 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
             n_layers=self.n_layers, size=self.size,
         )
         self.mean_net.to(ptu.device)
-        self.logstd = nn.Parameter(
+        # learn the std of gaussian distribution
+        """
+        self.logstd = build_mlp(
+            input_size=self.ob_dim,
+            output_size=1,
+            n_layers=self.n_layers // 2, 
+            size=self.size,
+        )
+        """
+        if apply_uncertainty:
+            self.logstd = nn.Parameter(
 
-            torch.zeros(self.ac_dim, dtype=torch.float32, device=ptu.device)
-        )
-        self.logstd.to(ptu.device)
-        self.optimizer = optim.Adam(
-            itertools.chain([self.logstd], self.mean_net.parameters()),
-            self.learning_rate
-        )
+                torch.zeros(self.ac_dim, dtype=torch.float32, device=ptu.device)
+            )
+            self.logstd.to(ptu.device)
+
+            self.optimizer = optim.Adam(
+                itertools.chain([self.logstd], self.mean_net.parameters()),
+                self.learning_rate
+            )
+            # Loss function
+            self.loss_fn = nn.GaussianNLLLoss()
+        else:
+            self.optimizer = optim.Adam(
+                itertools.chain(self.mean_net.parameters()),
+                self.learning_rate
+            )
+            # Loss function
+            self.loss_fn = nn.MSELoss()
 
     def save(self, filepath):
         """
@@ -129,20 +151,39 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
         # through it. For example, you can return a torch.FloatTensor. You can also
         # return more flexible objects, such as a
         # `torch.distributions.Distribution` object. It's up to you!
-        raise NotImplementedError
+        loc = self.mean_net(observation)
+        if self.apply_uncertainty:
+            scale = torch.exp(self.logstd)
+            return torch.distributions.normal.Normal(loc, scale).sample()
+        else:
+            return loc
+
+        # raise NotImplementedError
 
     def update(self, observations, actions):
         """
         Updates/trains the policy
 
         :param observations: observation(s) to query the policy
-        :param actions: actions we want the policy to imitate
+        :param actions: actions we want the policy to imitate (labels)
         :return:
             dict: 'Training Loss': supervised learning loss
         """
         # TODO: update the policy and return the loss
-        loss = TODO
+        
+        obs = ptu.from_numpy(observations)
+        loc = self.mean_net(obs)
+        if self.apply_uncertainty:
+            scale = torch.exp(self.logstd)
+            batch_size = loc.size()[0]
+            var = torch.square(scale).unsqueeze(0).repeat([batch_size, 1])
+            loss_output = self.loss_fn(loc, ptu.from_numpy(actions), var)
+        else:
+            loss_output = self.loss_fn(loc, ptu.from_numpy(actions))
+        self.optimizer.zero_grad() # zero's out gradients
+        loss_output.backward() # populate gradients
+        self.optimizer.step() # update each parameter via gradient descent
         return {
             # You can add extra logging information here, but keep this line
-            'Training Loss': ptu.to_numpy(loss),
+            'Training Loss': ptu.to_numpy(loss_output),
         }
