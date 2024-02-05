@@ -93,6 +93,7 @@ def run_training_loop(params):
         params['n_layers'],
         params['size'],
         learning_rate=params['learning_rate'],
+        apply_uncertainty=params['apply_uncertainty'],
     )
 
     # replay buffer
@@ -133,10 +134,12 @@ def run_training_loop(params):
             # DAGGER training from sampled data relabeled by expert
             assert params['do_dagger']
             # TODO: collect `params['batch_size']` transitions
+            batch_size = params['batch_size']
             # HINT: use utils.sample_trajectories
             # TODO: implement missing parts of utils.sample_trajectory
-            paths, envsteps_this_batch = TODO
-
+            # Note here we use the trained policy actor.
+            paths, envsteps_this_batch = utils.sample_trajectories(
+                env, actor, batch_size, params['ep_len'])
             # relabel the collected obs with actions from a provided expert policy
             if params['do_dagger']:
                 print("\nRelabelling collected observations with labels from an expert policy...")
@@ -144,13 +147,17 @@ def run_training_loop(params):
                 # TODO: relabel collected obsevations (from our policy) with labels from expert policy
                 # HINT: query the policy (using the get_action function) with paths[i]["observation"]
                 # and replace paths[i]["action"] with these expert labels
-                paths = TODO
+                # iterate though eacy path in paths.
+                for i in range(len(paths)):
+                    paths[i]["action"] = expert_policy.get_action(paths[i]["observation"])
+                # paths = TODO
 
         total_envsteps += envsteps_this_batch
         # add collected data to replay buffer
         replay_buffer.add_rollouts(paths)
 
         # train agent (using sampled data from replay buffer)
+        # No matter bc or dagger, here we update the policy net
         print('\nTraining agent using sampled data from replay buffer...')
         training_logs = []
         for _ in range(params['num_agent_train_steps_per_iter']):
@@ -160,10 +167,11 @@ def run_training_loop(params):
             # HINT2: use np.random.permutation to sample random indices
             # HINT3: return corresponding data points from each array (i.e., not different indices from each array)
             # for imitation learning, we only need observations and actions.
-            batch_size = params['train_batch_size']
+            train_batch_size = params['train_batch_size']
             whole_shuffled_indices = np.random.permutation(replay_buffer.__len__())
-            ob_batch = replay_buffer.obs[whole_shuffled_indices[0:batch_size]]
-            ac_batch = replay_buffer.acs[whole_shuffled_indices[0:batch_size]]
+            train_batch_size = min(train_batch_size, replay_buffer.__len__())
+            ob_batch = replay_buffer.obs[whole_shuffled_indices[0:train_batch_size]]
+            ac_batch = replay_buffer.acs[whole_shuffled_indices[0:train_batch_size]]
             # ob_batch, ac_batch = TODO
 
             # use the sampled data to train an agent
@@ -222,7 +230,7 @@ def main():
     parser.add_argument('--env_name', '-env', type=str, help=f'choices: {", ".join(MJ_ENV_NAMES)}', required=True)
     parser.add_argument('--exp_name', '-exp', type=str, default='pick an experiment name', required=True)
     parser.add_argument('--do_dagger', action='store_true')
-    parser.add_argument('--ep_len', type=int)
+    parser.add_argument('--ep_len', type=int)  # the max len of the traj.
 
     parser.add_argument('--num_agent_train_steps_per_iter', type=int, default=1000)  # number of gradient steps for training policy (per iter in n_iter)
     parser.add_argument('--n_iter', '-n', type=int, default=1)
@@ -233,9 +241,10 @@ def main():
     parser.add_argument('--train_batch_size', type=int,
                         default=100)  # number of sampled data points to be used per gradient/train step
 
-    parser.add_argument('--n_layers', type=int, default=2)  # depth, of policy to be learned
-    parser.add_argument('--size', type=int, default=64)  # width of each layer, of policy to be learned
+    parser.add_argument('--n_layers', type=int, default=4)  # depth, of policy to be learned
+    parser.add_argument('--size', type=int, default=128)  # width of each layer, of policy to be learned
     parser.add_argument('--learning_rate', '-lr', type=float, default=5e-3)  # LR for supervised learning
+    parser.add_argument('--apply_uncertainty', type=bool, default=False)    # if true, we will generate a learnt gaussin distribution.
 
     parser.add_argument('--video_log_freq', type=int, default=5)
     parser.add_argument('--scalar_log_freq', type=int, default=1)

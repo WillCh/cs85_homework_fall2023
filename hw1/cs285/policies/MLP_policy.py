@@ -112,6 +112,7 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
         )
         """
         if apply_uncertainty:
+            print('Apply uncertainty model...\n\n')
             self.logstd = nn.Parameter(
 
                 torch.zeros(self.ac_dim, dtype=torch.float32, device=ptu.device)
