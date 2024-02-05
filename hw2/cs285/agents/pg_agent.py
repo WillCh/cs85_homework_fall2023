@@ -88,18 +88,20 @@ class PGAgent(nn.Module):
 
     def _calculate_q_vals(self, rewards: Sequence[np.ndarray]) -> Sequence[np.ndarray]:
         """Monte Carlo estimation of the Q function."""
-
+        # one reward is a traj's R vectors. rewars are multiple trajs.
+        # return a list, each value is a 1-D np array which contains the Q(s_t, a_t), the dim is t.
         if not self.use_reward_to_go:
             # Case 1: in trajectory-based PG, we ignore the timestep and instead use the discounted return for the entire
             # trajectory at each point.
             # In other words: Q(s_t, a_t) = sum_{t'=0}^T gamma^t' r_{t'}
             # TODO: use the helper function self._discounted_return to calculate the Q-values
-            q_values = None
+            # in this case, we are not really computing the Q value, because it's not defined as from current state to terminal.
+            q_values = [self._discounted_return(reward) for reward in rewards]
         else:
             # Case 2: in reward-to-go PG, we only use the rewards after timestep t to estimate the Q-value for (s_t, a_t).
             # In other words: Q(s_t, a_t) = sum_{t'=t}^T gamma^(t'-t) * r_{t'}
             # TODO: use the helper function self._discounted_reward_to_go to calculate the Q-values
-            q_values = None
+            q_values = [self._discounted_reward_to_go(reward) for reward in rewards]
 
         return q_values
 
@@ -156,12 +158,22 @@ class PGAgent(nn.Module):
         Note that all entries of the output list should be the exact same because each sum is from 0 to T (and doesn't
         involve t)!
         """
-        return None
+        t_seq = np.arange(0, len(rewards), step=1.0, dtype=float)
+        gamma_seq = np.power(self.gamma, t_seq)
+        weighted_reward = np.sum(gamma_seq * rewards)
+        return np.ones(len(rewards)) * weighted_reward
 
 
     def _discounted_reward_to_go(self, rewards: Sequence[float]) -> Sequence[float]:
         """
         Helper function which takes a list of rewards {r_0, r_1, ..., r_t', ... r_T} and returns a list where the entry
         in each index t' is sum_{t'=t}^T gamma^(t'-t) * r_{t'}.
+        rewards should be a np array.
         """
-        return None
+        t_horizon = len(rewards)
+        t_seq = np.arange(0, t_horizon, step=1.0, dtype=float)
+        gamma_seq = np.power(self.gamma, t_seq)
+        gamma_matrix = np.zeros(shape=[t_horizon, t_horizon])
+        for row_id in range(t_horizon):
+            gamma_matrix[row_id][row_id:t_horizon] = gamma_seq[0: t_horizon - row_id]
+        return gamma_matrix * rewards
