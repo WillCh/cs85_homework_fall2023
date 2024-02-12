@@ -62,6 +62,8 @@ def run_training_loop(args):
         baseline_gradient_steps=args.baseline_gradient_steps,
         gae_lambda=args.gae_lambda,
     )
+    print('the act space is ')
+    print(ac_dim)
 
     total_envsteps = 0
     start_time = time.time()
@@ -70,7 +72,8 @@ def run_training_loop(args):
         print(f"\n********** Iteration {itr} ************")
         # TODO: sample `args.batch_size` transitions using utils.sample_trajectories
         # make sure to use `max_ep_len`
-        trajs, envsteps_this_batch = None, None  # TODO
+        trajs, envsteps_this_batch = utils.sample_trajectories(
+            env, agent.actor, args.batch_size, max_length=max_ep_len) 
         total_envsteps += envsteps_this_batch
 
         # trajs should be a list of dictionaries of NumPy arrays, where each dictionary corresponds to a trajectory.
@@ -78,7 +81,9 @@ def run_training_loop(args):
         trajs_dict = {k: [traj[k] for traj in trajs] for k in trajs[0]}
 
         # TODO: train the agent using the sampled trajectories and the agent's update function
-        train_info: dict = None
+        train_info: dict = agent.update(
+            trajs_dict['observation'], trajs_dict['action'], trajs_dict['reward'],
+            trajs_dict['terminal'])
 
         if itr % args.scalar_log_freq == 0:
             # save eval metrics
@@ -136,10 +141,10 @@ def main():
     parser.add_argument("--normalize_advantages", "-na", action="store_true")
     parser.add_argument(
         "--batch_size", "-b", type=int, default=1000
-    )  # steps collected per train iteration
+    )  # steps collected per train iteration, here the steps are sum of all traj size.
     parser.add_argument(
         "--eval_batch_size", "-eb", type=int, default=400
-    )  # steps collected per eval iteration
+    )  # steps collected per eval iteration, here the steps are sum of all traj size.
 
     parser.add_argument("--discount", type=float, default=1.0)
     parser.add_argument("--learning_rate", "-lr", type=float, default=5e-3)
@@ -148,7 +153,7 @@ def main():
 
     parser.add_argument(
         "--ep_len", type=int
-    )  # students shouldn't change this away from env's default
+    )  # students shouldn't change this away from env's default, this is the max length of a traj
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--no_gpu", "-ngpu", action="store_true")
     parser.add_argument("--which_gpu", "-gpu_id", default=0)

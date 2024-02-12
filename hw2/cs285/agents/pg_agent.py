@@ -59,6 +59,8 @@ class PGAgent(nn.Module):
 
         Each input is a list of NumPy arrays, where each array corresponds to a single trajectory. The batch size is the
         total number of samples across all trajectories (i.e. the sum of the lengths of all the arrays).
+
+        Note: the sequence is not a tensor. In the outer call, it's a python list.
         """
 
         # step 1: calculate Q values of each (s_t, a_t) point, using rewards (r_0, ..., r_t, ..., r_T)
@@ -75,7 +77,13 @@ class PGAgent(nn.Module):
 
         # step 3: use all datapoints (s_t, a_t, adv_t) to update the PG actor/policy
         # TODO: update the PG actor/policy network once using the advantages
-        info: dict = None
+        # assemble the obs, action, q values into 3 big tensor, the dim is [num_traj * traj_size_T, ...]
+        # Note the traj_size_T is not the same among all trajs.
+        # Thus, we can use one batch run to conduct the policy gradient updates.
+        all_obs = np.concatenate(obs, axis=0)
+        all_actions = np.concatenate(actions, axis=0)
+        all_q_values = np.concatenate(q_values, axis=0)
+        info: dict = self.actor.update(all_obs, all_actions, advantages=all_q_values)
 
         # step 4: if needed, use all datapoints (s_t, a_t, q_t) to update the PG critic/baseline
         if self.critic is not None:
@@ -90,6 +98,7 @@ class PGAgent(nn.Module):
         """Monte Carlo estimation of the Q function."""
         # one reward is a traj's R vectors. rewars are multiple trajs.
         # return a list, each value is a 1-D np array which contains the Q(s_t, a_t), the dim is t.
+        # Each element of such list represents one traj's Q functions (i.e. a one-d array).
         if not self.use_reward_to_go:
             # Case 1: in trajectory-based PG, we ignore the timestep and instead use the discounted return for the entire
             # trajectory at each point.
@@ -161,7 +170,10 @@ class PGAgent(nn.Module):
         t_seq = np.arange(0, len(rewards), step=1.0, dtype=float)
         gamma_seq = np.power(self.gamma, t_seq)
         weighted_reward = np.sum(gamma_seq * rewards)
-        return np.ones(len(rewards)) * weighted_reward
+        res = np.ones(len(rewards)) * weighted_reward
+        # print(res.shape)
+        # print(res)
+        return res
 
 
     def _discounted_reward_to_go(self, rewards: Sequence[float]) -> Sequence[float]:
@@ -176,4 +188,6 @@ class PGAgent(nn.Module):
         gamma_matrix = np.zeros(shape=[t_horizon, t_horizon])
         for row_id in range(t_horizon):
             gamma_matrix[row_id][row_id:t_horizon] = gamma_seq[0: t_horizon - row_id]
-        return gamma_matrix * rewards
+        res = np.matmul(gamma_matrix, rewards)
+        # print(res)
+        return res

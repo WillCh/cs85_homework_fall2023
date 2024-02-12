@@ -52,6 +52,7 @@ class MLPPolicy(nn.Module):
             parameters,
             learning_rate,
         )
+        self.ac_dim = ac_dim
 
         self.discrete = discrete
 
@@ -59,9 +60,11 @@ class MLPPolicy(nn.Module):
     def get_action(self, obs: np.ndarray) -> np.ndarray:
         """Takes a single observation (as a numpy array) and returns a single action (as a numpy array)."""
         # TODO: implement get_action
-        action = None
-
-        return action
+        # note here the obs is a one-dim array.
+        obs = ptu.from_numpy(obs)
+        action = self.forward(obs)
+        # action dim is [action_dim]
+        return ptu.to_numpy(action.sample())
 
     def forward(self, obs: torch.FloatTensor):
         """
@@ -70,16 +73,39 @@ class MLPPolicy(nn.Module):
         flexible objects, such as a `torch.distributions.Distribution` object. It's up to you!
         """
         if self.discrete:
-            # TODO: define the forward pass for a policy with a discrete action space.
-            pass
+            return torch.distributions.categorical.Categorical(logits=self.logits_net(obs))
         else:
             # TODO: define the forward pass for a policy with a continuous action space.
-            pass
+            return torch.distributions.normal.Normal(
+                loc=self.mean_net(obs), scale=torch.exp(self.logstd))
         return None
 
     def update(self, obs: np.ndarray, actions: np.ndarray, *args, **kwargs) -> dict:
         """Performs one iteration of gradient descent on the provided batch of data."""
-        raise NotImplementedError
+        "The q values should be the 3rd input argment."
+        all_state_num = obs.shape[0]
+        if 'q_values_array' in kwargs:
+            all_q_values = kwargs['q_values_array']
+        else:
+            all_q_values = np.ones(all_state_num)
+        # Moves np array to tensor in GPU.
+        obs = ptu.from_numpy(obs)
+        actions = ptu.from_numpy(actions)
+        all_q_values = ptu.from_numpy(all_q_values)
+        if self.discrete:
+            logits = self.forward(obs)
+            loss = torch.nn.functional.cross_entropy(
+                logits, actions, weight=all_q_values)
+        else:
+            # We assume it's a gaussian distribution.
+            normal_dist = torch.distributions.normal.Normal(
+                loc=self.forward(obs), scale=torch.exp(self.logstd))
+            loss = torch.mean(normal_dist.log_prob(actions) * all_q_values)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        return {'training_loss': ptu.to_numpy(loss)}
+        # raise NotImplementedError
 
 
 class MLPPolicyPG(MLPPolicy):
@@ -95,10 +121,13 @@ class MLPPolicyPG(MLPPolicy):
         obs = ptu.from_numpy(obs)
         actions = ptu.from_numpy(actions)
         advantages = ptu.from_numpy(advantages)
-
-        # TODO: implement the policy gradient actor update.
-        loss = None
-
+        # currently, we treat advantages as q values for simply policy gradient.
+        policy_distribution = self.forward(obs)
+        loglikelihood = policy_distribution.log_prob(actions)
+        loss = torch.neg(torch.mean(torch.mul(loglikelihood, advantages)))
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
         return {
             "Actor Loss": ptu.to_numpy(loss),
         }
