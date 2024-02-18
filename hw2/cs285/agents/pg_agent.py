@@ -70,19 +70,23 @@ class PGAgent(nn.Module):
         # way. obs, actions, rewards, terminals, and q_values should all be arrays with a leading dimension of `batch_size`
         # beyond this point.
 
-        # step 2: calculate advantages from Q values
-        advantages: np.ndarray = self._estimate_advantage(
-            obs, rewards, q_values, terminals
-        )
-
-        # step 3: use all datapoints (s_t, a_t, adv_t) to update the PG actor/policy
-        # TODO: update the PG actor/policy network once using the advantages
-        # assemble the obs, action, q values into 3 big tensor, the dim is [num_traj * traj_size_T, ...]
+        # Assemble the obs, action, q values into 3 big tensor, the dim is [num_traj * traj_size_T, ...]
         # Note the traj_size_T is not the same among all trajs.
         # Thus, we can use one batch run to conduct the policy gradient updates.
         all_obs = np.concatenate(obs, axis=0)
         all_actions = np.concatenate(actions, axis=0)
         all_q_values = np.concatenate(q_values, axis=0)
+        all_rewards = np.concatenate(rewards, axis=0)
+        all_terminals = np.concatenate(terminals, axis=0)
+
+        # step 2: calculate advantages from Q values
+        advantages: np.ndarray = self._estimate_advantage(
+            all_obs, all_rewards, all_q_values, all_terminals
+        )
+
+        # step 3: use all datapoints (s_t, a_t, adv_t) to update the PG actor/policy
+        # TODO: update the PG actor/policy network once using the advantages
+        
         info: dict = self.actor.update(all_obs, all_actions, advantages=all_q_values)
 
         # step 4: if needed, use all datapoints (s_t, a_t, q_t) to update the PG critic/baseline
@@ -123,11 +127,11 @@ class PGAgent(nn.Module):
     ) -> np.ndarray:
         """Computes advantages by (possibly) subtracting a value baseline from the estimated Q-values.
 
-        Operates on flat 1D NumPy arrays.
+        Operates on flat 1D NumPy arrays. Each element of the 
         """
         if self.critic is None:
-            # TODO: if no baseline, then what are the advantages?
-            advantages = None
+            # TODO: if no baseline, then what are the advantages? -> it's just Q functions
+            advantages = q_values
         else:
             # TODO: run the critic and use it as a baseline
             values = None
@@ -155,7 +159,9 @@ class PGAgent(nn.Module):
 
         # TODO: normalize the advantages to have a mean of zero and a standard deviation of one within the batch
         if self.normalize_advantages:
-            pass
+            advantages_mean = np.mean(advantages)
+            advantages_std = np.std(advantages)
+            advantages = (advantages - advantages_mean) / (advantages_std + 1e-8)
 
         return advantages
 
