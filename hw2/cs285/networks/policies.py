@@ -76,36 +76,15 @@ class MLPPolicy(nn.Module):
             return torch.distributions.categorical.Categorical(logits=self.logits_net(obs))
         else:
             # TODO: define the forward pass for a policy with a continuous action space.
-            return torch.distributions.normal.Normal(
-                loc=self.mean_net(obs), scale=torch.exp(self.logstd))
+            return torch.distributions.multivariate_normal.MultivariateNormal(
+                loc=self.mean_net(obs), 
+                covariance_matrix=torch.diag(torch.exp(self.logstd)))
         return None
 
     def update(self, obs: np.ndarray, actions: np.ndarray, *args, **kwargs) -> dict:
         """Performs one iteration of gradient descent on the provided batch of data."""
         "The q values should be the 3rd input argment."
-        all_state_num = obs.shape[0]
-        if 'q_values_array' in kwargs:
-            all_q_values = kwargs['q_values_array']
-        else:
-            all_q_values = np.ones(all_state_num)
-        # Moves np array to tensor in GPU.
-        obs = ptu.from_numpy(obs)
-        actions = ptu.from_numpy(actions)
-        all_q_values = ptu.from_numpy(all_q_values)
-        if self.discrete:
-            logits = self.forward(obs)
-            loss = torch.nn.functional.cross_entropy(
-                logits, actions, weight=all_q_values)
-        else:
-            # We assume it's a gaussian distribution.
-            normal_dist = torch.distributions.normal.Normal(
-                loc=self.forward(obs), scale=torch.exp(self.logstd))
-            loss = torch.mean(normal_dist.log_prob(actions) * all_q_values)
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-        return {'training_loss': ptu.to_numpy(loss)}
-        # raise NotImplementedError
+        raise NotImplementedError
 
 
 class MLPPolicyPG(MLPPolicy):

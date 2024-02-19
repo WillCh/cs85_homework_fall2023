@@ -83,16 +83,16 @@ class PGAgent(nn.Module):
         advantages: np.ndarray = self._estimate_advantage(
             all_obs, all_rewards, all_q_values, all_terminals
         )
-
         # step 3: use all datapoints (s_t, a_t, adv_t) to update the PG actor/policy
         # TODO: update the PG actor/policy network once using the advantages
         
-        info: dict = self.actor.update(all_obs, all_actions, advantages=all_q_values)
+        info: dict = self.actor.update(all_obs, all_actions, advantages=advantages)
 
         # step 4: if needed, use all datapoints (s_t, a_t, q_t) to update the PG critic/baseline
         if self.critic is not None:
             # TODO: perform `self.baseline_gradient_steps` updates to the critic/baseline network
-            critic_info: dict = None
+            for _ in range(self.baseline_gradient_steps):
+                critic_info: dict = self.critic.update(all_obs, all_q_values)
 
             info.update(critic_info)
 
@@ -127,32 +127,52 @@ class PGAgent(nn.Module):
     ) -> np.ndarray:
         """Computes advantages by (possibly) subtracting a value baseline from the estimated Q-values.
 
-        Operates on flat 1D NumPy arrays. Each element of the 
+        each input is 2-D array, whose dimensions are [Batch_size, traj length]
+        Operates on flat 1D NumPy arrays.
         """
         if self.critic is None:
             # TODO: if no baseline, then what are the advantages? -> it's just Q functions
             advantages = q_values
         else:
             # TODO: run the critic and use it as a baseline
-            values = None
-            assert values.shape == q_values.shape
+            v_values = np.squeeze(ptu.to_numpy(self.critic.forward(ptu.from_numpy(obs))), axis=1)
+            assert v_values.shape == q_values.shape
 
             if self.gae_lambda is None:
                 # TODO: if using a baseline, but not GAE, what are the advantages?
-                advantages = None
+                # A is r_t + gamma * V_t+1 - V_t
+                # We could use terminals to determine the end state
+                # For the end state: A = r_t or here just the q_val_t
+                batch_size = obs.shape[0]
+                advantages = np.zeros(batch_size)
+                for i in range(batch_size):
+                    if terminals[i]:
+                        advantages[i] = q_values[i]
+                    else:
+                        advantages[i] = rewards[i] + v_values[i + 1] * self.gamma - v_values[i]
             else:
                 # TODO: implement GAE
                 batch_size = obs.shape[0]
+                # this is the delta_t array
+                delta_t = np.zeros(batch_size)
+                for i in range(batch_size):
+                    if terminals[i]:
+                        delta_t[i] = q_values[i]
+                    else:
+                        delta_t[i] = rewards[i] + v_values[i + 1] * self.gamma - v_values[i]
 
                 # HINT: append a dummy T+1 value for simpler recursive calculation
-                values = np.append(values, [0])
+                delta_t = np.append(delta_t, [0])
                 advantages = np.zeros(batch_size + 1)
 
                 for i in reversed(range(batch_size)):
                     # TODO: recursively compute advantage estimates starting from timestep T.
                     # HINT: use terminals to handle edge cases. terminals[i] is 1 if the state is the last in its
                     # trajectory, and 0 otherwise.
-                    pass
+                    if terminals[i] == 1:
+                        advantages[i] = delta_t[i]
+                    else:
+                        advantages[i] = delta_t[i] + self.gamma * self.gae_lambda * advantages[i + 1]
 
                 # remove dummy advantage
                 advantages = advantages[:-1]

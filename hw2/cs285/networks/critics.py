@@ -33,19 +33,28 @@ class ValueCritic(nn.Module):
             self.network.parameters(),
             learning_rate,
         )
+        self.loss = torch.nn.MSELoss()
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         # TODO: implement the forward pass of the critic network
-        pass
+        return self.network(obs)
         
 
+    # Note: even here we use the q_value as the name of the impact, it's just
+    # sum_{t'=0}^T gamma^t' r_{t'} or sum_{t'=t}^T gamma^(t'-t) * r_{t'}.
+    # which for a SINGLE traj, we can think it's both Q and V. Because by def
+    # V(s) = E_a(for given pi) Q(a, s), but for a sinle emperical traj, there is
+    # no concept of Expecation of all actions given current state s.
     def update(self, obs: np.ndarray, q_values: np.ndarray) -> dict:
         obs = ptu.from_numpy(obs)
         q_values = ptu.from_numpy(q_values)
 
+        predicted_values = self.forward(obs)
         # TODO: update the critic using the observations and q_values
-        loss = None
-
+        loss = self.loss(predicted_values, q_values)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
         return {
             "Baseline Loss": ptu.to_numpy(loss),
         }
