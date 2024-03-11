@@ -57,6 +57,7 @@ def run_training_loop(config: dict, logger: Logger, args: argparse.Namespace):
     observation = None
 
     # Replay buffer
+    # The three dim of the are: history timestamp, x axis, y axis.
     if len(env.observation_space.shape) == 3:
         stacked_frames = True
         frame_history_len = env.observation_space.shape[0]
@@ -75,6 +76,7 @@ def run_training_loop(config: dict, logger: Logger, args: argparse.Namespace):
     def reset_env_training():
         nonlocal observation
 
+        # Get the initial state of the env.
         observation = env.reset()
 
         assert not isinstance(
@@ -83,6 +85,8 @@ def run_training_loop(config: dict, logger: Logger, args: argparse.Namespace):
         observation = np.asarray(observation)
 
         if isinstance(replay_buffer, MemoryEfficientReplayBuffer):
+            # The input of the reset is the last frame of the observation (i.e. we only get the
+            # most recent timestamp from the history).
             replay_buffer.on_reset(observation=observation[-1, ...])
 
     reset_env_training()
@@ -91,10 +95,16 @@ def run_training_loop(config: dict, logger: Logger, args: argparse.Namespace):
         epsilon = exploration_schedule.value(step)
         
         # TODO(student): Compute action
-        action = ...
+        action = agent.get_action(observation, epsilon)
 
         # TODO(student): Step the environment
 
+        # next_observation should be 2d (only have the h and w).
+        # it's the last timestamp of the returned observations. The reason that we have
+        # memory efficient buffer is that: we don't want to repeatly store the
+        # the overlapped history timestamps, in the obs [history_ts, h, w]. Thus,
+        # we only store the single traj. Thus, in the insert method, we only need to
+        # insert the last in the history_ts.
         next_observation = np.asarray(next_observation)
         truncated = info.get("TimeLimit.truncated", False)
 
@@ -194,6 +204,7 @@ def main():
     # create directory for logging
     logdir_prefix = "hw3_dqn_"  # keep for autograder
 
+    # the config is in yaml format, and it will be loaded here.
     config = make_config(args.config_file)
     logger = make_logger(logdir_prefix, config)
 

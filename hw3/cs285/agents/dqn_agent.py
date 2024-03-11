@@ -26,6 +26,8 @@ class DQNAgent(nn.Module):
         super().__init__()
 
         self.critic = make_critic(observation_shape, num_actions)
+        # the target is theta', which is used to hold the params and generate
+        # stable training labels for the critic.
         self.target_critic = make_critic(observation_shape, num_actions)
         self.critic_optimizer = make_optimizer(self.critic.parameters())
         self.lr_scheduler = make_lr_schedule(self.critic_optimizer)

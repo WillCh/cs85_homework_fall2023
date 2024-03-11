@@ -29,6 +29,9 @@ def basic_dqn_config(
     batch_size: int = 128,
     **kwargs
 ):
+    # the critic here is nn, whose input is observation, output is a
+    # num_actions vector, in which each element represents the Q value of
+    # that action.
     def make_critic(observation_shape: Tuple[int, ...], num_actions: int) -> nn.Module:
         return ptu.build_mlp(
             input_size=np.prod(observation_shape),
@@ -68,6 +71,7 @@ def basic_dqn_config(
         log_string += "_doubleq"
 
     return {
+        # The agent kwargs will be used for the agent constructor.
         "agent_kwargs": {
             "make_critic": make_critic,
             "make_optimizer": make_optimizer,

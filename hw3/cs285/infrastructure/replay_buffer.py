@@ -35,6 +35,8 @@ class ReplayBuffer:
     ):
         """
         Insert a single transition into the replay buffer.
+        The dimension of observation is abrtray size, but there is no first dimenstion
+        for batch size. we assume it's a single action.
 
         Use like:
             replay_buffer.insert(
@@ -172,6 +174,7 @@ class MemoryEfficientReplayBuffer:
         """
         Call this with the first observation of a new episode.
         """
+        # We ignore the previous history steps, and only use the most recent timestamp.
         assert (
             observation.ndim == 2
         ), "Single-frame observation should have dimensions (H, W)"
