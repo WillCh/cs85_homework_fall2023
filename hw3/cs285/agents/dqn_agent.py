@@ -73,20 +73,28 @@ class DQNAgent(nn.Module):
         # Compute target values
         with torch.no_grad():
             # TODO(student): compute target values
-            next_qa_values = ...
+            # call the target net to get the Q(s_next, a_best)
+            # the next_qa_values dims are [batch_size, action_dim]
+            next_qa_values = self.target_critic(next_obs)
 
             if self.use_double_q:
                 raise NotImplementedError
             else:
-                next_action = ...
-            
-            next_q_values = ...
-            target_values = ...
+                next_action = torch.argmax(next_qa_values, dim = 1)
+
+            next_q_values = torch.gather(next_qa_values, 1,
+                                         next_action.unsqueeze(1)).squeeze(1)
+            target_values = reward + self.discount * next_q_values * (1 - done.float())
 
         # TODO(student): train the critic with the target values
-        qa_values = ...
-        q_values = ... # Compute from the data actions; see torch.gather
-        loss = ...
+        qa_values = self.critic(obs)
+        # Compute from the data actions; see torch.gather
+        # Note here we can't use qa_values[:, action]. This operation is to select the
+        # "same" index in every place.
+        # see https://medium.com/@mbednarski/understanding-indexing-with-pytorch-gather-33717a84ebc4 .
+        q_values = torch.gather(qa_values, 1, action.unsqueeze(1)).squeeze(1)
+        
+        loss = self.critic_loss(target_values, q_values)
 
 
         self.critic_optimizer.zero_grad()
@@ -121,5 +129,8 @@ class DQNAgent(nn.Module):
         Update the DQN agent, including both the critic and target.
         """
         # TODO(student): update the critic, and the target if needed
-
+        # train the q network
+        critic_stats = self.update_critic(obs, action, reward, next_obs, done)
+        if step % self.target_update_period == 0:
+            self.update_target_critic()
         return critic_stats

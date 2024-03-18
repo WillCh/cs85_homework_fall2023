@@ -98,7 +98,7 @@ def run_training_loop(config: dict, logger: Logger, args: argparse.Namespace):
         action = agent.get_action(observation, epsilon)
 
         # TODO(student): Step the environment
-        next_observation, reward, done, truncated, info  = env.step(action)
+        next_observation, reward, done, info  = env.step(action)
 
         # next_observation should be 2d (only have the h and w).
         # it's the last timestamp of the returned observations. The reason that we have
@@ -121,7 +121,7 @@ def run_training_loop(config: dict, logger: Logger, args: argparse.Namespace):
                                  next_observation=next_observation, done=done)
 
         # Handle episode termination
-        if done:
+        if done or truncated:
             reset_env_training()
 
             logger.log_scalar(info["episode"]["r"], "train_return", step)
