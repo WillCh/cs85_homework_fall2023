@@ -45,12 +45,17 @@ class DQNAgent(nn.Module):
 
     def get_action(self, observation: np.ndarray, epsilon: float = 0.02) -> int:
         """
-        Used for evaluation.
+        Used for evaluation. Assume the observation is a single obs data.
         """
         observation = ptu.from_numpy(np.asarray(observation))[None]
 
         # TODO(student): get the action from the critic using an epsilon-greedy strategy
-        action = ...
+        # Get the expected rewards (i.e. q value) of all actions.
+        q_values = self.target_critic(observation)
+        greedy_best_action = torch.argmax(q_values, dim = -1)
+        action_likelihood = torch.ones(self.num_actions) * epsilon / (self.num_actions - 1)
+        action_likelihood[greedy_best_action] = 1- epsilon
+        action = torch.distributions.categorical.Categorical(probs=action_likelihood).sample()
 
         return ptu.to_numpy(action).squeeze(0).item()
 

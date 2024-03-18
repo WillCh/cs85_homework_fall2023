@@ -98,6 +98,7 @@ def run_training_loop(config: dict, logger: Logger, args: argparse.Namespace):
         action = agent.get_action(observation, epsilon)
 
         # TODO(student): Step the environment
+        next_observation, reward, done, truncated, info  = env.step(action)
 
         # next_observation should be 2d (only have the h and w).
         # it's the last timestamp of the returned observations. The reason that we have
@@ -112,10 +113,12 @@ def run_training_loop(config: dict, logger: Logger, args: argparse.Namespace):
         if isinstance(replay_buffer, MemoryEfficientReplayBuffer):
             # We're using the memory-efficient replay buffer,
             # so we only insert next_observation (not observation)
-            ...
+            replay_buffer.insert(action=action, reward=reward,
+                                 next_observation=next_observation[-1, ...], done=done)
         else:
             # We're using the regular replay buffer
-            ...
+            replay_buffer.insert(action=action, reward=reward, observation=observation,
+                                 next_observation=next_observation, done=done)
 
         # Handle episode termination
         if done:
@@ -129,13 +132,19 @@ def run_training_loop(config: dict, logger: Logger, args: argparse.Namespace):
         # Main DQN training loop
         if step >= config["learning_starts"]:
             # TODO(student): Sample config["batch_size"] samples from the replay buffer
-            batch = ...
+            training_batch = replay_buffer.sample(config["batch_size"])
 
             # Convert to PyTorch tensors
-            batch = ptu.from_numpy(batch)
+            training_observations = ptu.from_numpy(training_batch["observations"])
+            training_actions = ptu.from_numpy(training_batch["actions"])
+            training_rewards = ptu.from_numpy(training_batch["rewards"])
+            training_next_observations = ptu.from_numpy(training_batch["next_observations"])
+            training_dones = ptu.from_numpy(training_batch["dones"])
 
             # TODO(student): Train the agent. `batch` is a dictionary of numpy arrays,
-            update_info = ...
+            update_info = agent.update(obs=training_observations, action=training_actions,
+                                       reward=training_rewards, next_obs=training_next_observations,
+                                       done=training_dones, step=step)
 
             # Logging code
             update_info["epsilon"] = epsilon
