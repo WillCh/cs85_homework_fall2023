@@ -78,7 +78,10 @@ class DQNAgent(nn.Module):
             next_qa_values = self.target_critic(next_obs)
 
             if self.use_double_q:
-                raise NotImplementedError
+                # Use the current network to decide an optimal action
+                # Use the target network to estimate the Q value
+                current_critic_qa_values = self.critic(next_obs)
+                next_action = torch.argmax(current_critic_qa_values, dim = 1)
             else:
                 next_action = torch.argmax(next_qa_values, dim = 1)
 
