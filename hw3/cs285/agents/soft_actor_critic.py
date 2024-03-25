@@ -124,6 +124,8 @@ class SoftActorCritic(nn.Module):
     def target_critic(self, obs: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
         """
         Compute the (ensembled) target Q-values for the given state-action pair.
+
+        Returns: q-values with shape (num_critics, batch_size).
         """
         return torch.stack(
             [critic(obs, action) for critic in self.target_critics], dim=0
@@ -156,11 +158,14 @@ class SoftActorCritic(nn.Module):
 
         # TODO(student): Implement the different backup strategies.
         if self.target_critic_backup_type == "doubleq":
-            raise NotImplementedError
+            updated_order = torch.randperm(num_critic_networks).unsqueeze(1).repeat(1, batch_size)
+            next_qs = torch.gather(next_qa_values, 0, updated_order)
         elif self.target_critic_backup_type == "min":
-            raise NotImplementedError
+            min_qs = torch.min(next_qs, dim = 0)
+            next_qs = min_qs.unsqueeze(0).repeat(num_critic_networks, 1)
         elif self.target_critic_backup_type == "mean":
-            raise NotImplementedError
+            mean_qs = torch.mean(next_qs, dim = 0)
+            next_qs = mean_qs.unsqueeze(0).repeat(num_critic_networks, 1)
         else:
             # Default, we don't need to do anything.
             pass
@@ -210,10 +215,10 @@ class SoftActorCritic(nn.Module):
                 batch_size,
             ), next_qs.shape
 
-            if self.use_entropy_bonus and self.backup_entropy:
+            # if self.use_entropy_bonus and self.backup_entropy:
                 # TODO(student): Add entropy bonus to the target values for SAC
-                next_action_entropy = ...
-                next_qs += ...
+                # next_action_entropy = ...
+                # next_qs += ...
 
             # Compute the target Q-value
             target_values: torch.Tensor = reward + self.discount * (1 - done.float()) * next_qs
@@ -360,7 +365,7 @@ class SoftActorCritic(nn.Module):
             )
 
         # TODO(student): Update the actor
-        actor_info = []
+        actor_info = {}
 
         # TODO(student): Perform either hard or soft target updates.
         # Relevant variables:
