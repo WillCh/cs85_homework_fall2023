@@ -58,10 +58,14 @@ class SoftActorCritic(nn.Module):
             target_update_period is not None or soft_target_update_rate is not None
         ), "Must specify either target_update_period or soft_target_update_rate"
 
+        # Actor net is user to predict the best action given the obs. Thus, its output
+        # is a distribution whose mean dim is action_dim.
         self.actor = make_actor(observation_shape, action_dim)
         self.actor_optimizer = make_actor_optimizer(self.actor.parameters())
         self.actor_lr_scheduler = make_actor_schedule(self.actor_optimizer)
 
+        # Critics/target here is different from the original DQL. The input of the net
+        # is obs + action, output is a single deterministic dim value (q value).
         self.critics = nn.ModuleList(
             [
                 make_critic(observation_shape, action_dim)
@@ -108,6 +112,7 @@ class SoftActorCritic(nn.Module):
             action: torch.Tensor = action_distribution.sample()
 
             assert action.shape == (1, self.action_dim), action.shape
+            # squeeze bc the first dim is bach size (here always 1).
             return ptu.to_numpy(action).squeeze(0)
 
     def critic(self, obs: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
@@ -124,6 +129,8 @@ class SoftActorCritic(nn.Module):
             [critic(obs, action) for critic in self.target_critics], dim=0
         )
 
+    # Here the reason that we may multiple q-val tensors is we may duplicate the target nets
+    # to get some forest effects.
     def q_backup_strategy(self, next_qs: torch.Tensor) -> torch.Tensor:
         """
         Handle Q-values from multiple different target critic networks to produce target values.
@@ -188,11 +195,11 @@ class SoftActorCritic(nn.Module):
         with torch.no_grad():
             # TODO(student)
             # Sample from the actor
-            next_action_distribution: torch.distributions.Distribution = ...
-            next_action = ...
+            next_action_distribution: torch.distributions.Distribution = self.actor(next_obs)
+            next_action: torch.Tensor = next_action_distribution.sample()
 
             # Compute the next Q-values for the sampled actions
-            next_qs = ...
+            next_qs = self.target_critic(obs=next_obs, action=next_action)
 
             # Handle Q-values from multiple different target critic networks (if necessary)
             # (For double-Q, clip-Q, etc.)
@@ -209,7 +216,7 @@ class SoftActorCritic(nn.Module):
                 next_qs += ...
 
             # Compute the target Q-value
-            target_values: torch.Tensor = ...
+            target_values: torch.Tensor = reward + self.discount * (1 - done.float()) * next_qs
             assert target_values.shape == (
                 self.num_critic_networks,
                 batch_size
@@ -217,11 +224,11 @@ class SoftActorCritic(nn.Module):
 
         # TODO(student): Update the critic
         # Predict Q-values
-        q_values = ...
+        q_values = self.critic(obs, action)
         assert q_values.shape == (self.num_critic_networks, batch_size), q_values.shape
 
         # Compute loss
-        loss: torch.Tensor = ...
+        loss: torch.Tensor = self.critic_loss(target_values, q_values)
 
         self.critic_optimizer.zero_grad()
         loss.backward()
@@ -340,16 +347,31 @@ class SoftActorCritic(nn.Module):
         """
 
         critic_infos = []
-        # TODO(student): Update the critic for num_critic_upates steps, and add the output stats to critic_infos
+        # TODO(student): Update the critic for num_critic_updates steps, and add the output stats to critic_infos
+        for _ in range(self.num_critic_updates):
+            critic_infos.append(
+                self.update_critic(
+                    obs=observations,
+                    action=actions,
+                    reward=rewards,
+                    next_obs=next_observations,
+                    done=dones
+                )
+            )
 
         # TODO(student): Update the actor
-        actor_info = ...
+        actor_info = []
 
         # TODO(student): Perform either hard or soft target updates.
         # Relevant variables:
         #  - step
         #  - self.target_update_period (None when using soft updates)
         #  - self.soft_target_update_rate (None when using hard updates)
+        if self.target_update_period is None:
+            # Use soft updates
+            self.soft_update_target_critic(self.soft_target_update_rate)
+        elif step % self.target_update_period == 0:
+            self.update_target_critic()
 
         # Average the critic info over all of the steps
         critic_info = {
