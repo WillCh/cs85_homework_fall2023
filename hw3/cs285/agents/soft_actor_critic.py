@@ -159,7 +159,7 @@ class SoftActorCritic(nn.Module):
         # TODO(student): Implement the different backup strategies.
         if self.target_critic_backup_type == "doubleq":
             updated_order = torch.randperm(num_critic_networks).unsqueeze(1).repeat(1, batch_size)
-            next_qs = torch.gather(next_qa_values, 0, updated_order)
+            next_qs = torch.gather(next_qs, 0, updated_order)
         elif self.target_critic_backup_type == "min":
             min_qs = torch.min(next_qs, dim = 0)
             next_qs = min_qs.unsqueeze(0).repeat(num_critic_networks, 1)
@@ -215,10 +215,10 @@ class SoftActorCritic(nn.Module):
                 batch_size,
             ), next_qs.shape
 
-            # if self.use_entropy_bonus and self.backup_entropy:
+            if self.use_entropy_bonus and self.backup_entropy:
                 # TODO(student): Add entropy bonus to the target values for SAC
-                # next_action_entropy = ...
-                # next_qs += ...
+                next_action_entropy = self.entropy(next_action_distribution)
+                next_qs += next_action_entropy * self.temperature
 
             # Compute the target Q-value
             target_values: torch.Tensor = reward + self.discount * (1 - done.float()) * next_qs
@@ -239,11 +239,14 @@ class SoftActorCritic(nn.Module):
         loss.backward()
         self.critic_optimizer.step()
 
-        return {
+        updated_info = {
             "critic_loss": loss.item(),
             "q_values": q_values.mean().item(),
             "target_values": target_values.mean().item(),
         }
+        if self.use_entropy_bonus and self.backup_entropy:
+            updated_info["critic_entropy"] = ptu.to_numpy(next_action_entropy)
+        return updated_info
 
     def entropy(self, action_distribution: torch.distributions.Distribution):
         """
@@ -252,7 +255,14 @@ class SoftActorCritic(nn.Module):
 
         # TODO(student): Compute the entropy of the action distribution.
         # Note: Think about whether to use .rsample() or .sample() here...
-        return ...
+        
+        # The sample does not use the reparametric trick, thus, it's not differentiable.
+        # the rsample use the reparametric trick, thus, it's differentiable.
+        # Given here we need to backprogate to optimize the policy, we need to use rsample.
+        num_sampled_actions = 100
+        sampled_actions = action_distribution.rsample(sample_shape=(num_sampled_actions,))
+        res = -1.0 * torch.mean(action_distribution.log_prob(sampled_actions))
+        return res
 
     def actor_loss_reinforce(self, obs: torch.Tensor):
         batch_size = obs.shape[0]
