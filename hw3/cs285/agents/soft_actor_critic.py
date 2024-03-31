@@ -268,11 +268,12 @@ class SoftActorCritic(nn.Module):
         batch_size = obs.shape[0]
 
         # TODO(student): Generate an action distribution
-        action_distribution: torch.distributions.Distribution = ...
+        action_distribution: torch.distributions.Distribution = self.actor(obs)
 
         with torch.no_grad():
             # TODO(student): draw num_actor_samples samples from the action distribution for each batch element
-            action = ...
+            action = action_distribution.sample((self.num_actor_samples,))
+
             assert action.shape == (
                 self.num_actor_samples,
                 batch_size,
@@ -280,7 +281,13 @@ class SoftActorCritic(nn.Module):
             ), action.shape
 
             # TODO(student): Compute Q-values for the current state-action pair
-            q_values = ...
+            # Note here we don't use the target net, but we should use the critic net.
+            # similar as double q-learning
+            # here the obs is [batch_size, obs dim], action is [num_actor_sample, batch_size, act dim]
+            # we need to augment the obs to [num_actor_sample, batch_size, act dim].
+            augmented_obs = obs.unsqueeze(0).repeat(self.num_actor_samples, 1, 1)
+
+            q_values = self.critic(augmented_obs, action)
             assert q_values.shape == (
                 self.num_critic_networks,
                 self.num_actor_samples,
@@ -290,11 +297,13 @@ class SoftActorCritic(nn.Module):
             # Our best guess of the Q-values is the mean of the ensemble
             q_values = torch.mean(q_values, axis=0)
             advantage = q_values
+            # advantage has shape [num_actor_samples, batch_size]
 
         # Do REINFORCE: calculate log-probs and use the Q-values
         # TODO(student)
-        log_probs = ...
-        loss = ...
+        log_probs = action_distribution.log_prob(action)
+
+        loss = -1.0 * torch.mean(log_probs * advantage)
 
         return loss, torch.mean(self.entropy(action_distribution))
 
@@ -306,13 +315,26 @@ class SoftActorCritic(nn.Module):
 
         # TODO(student): Sample actions
         # Note: Think about whether to use .rsample() or .sample() here...
-        action = ...
+        # rsample is used given it has re-parametrics and support gradient.
+        action = action_distribution.rsample((self.num_actor_samples,))
+
+        assert action.shape == (
+            self.num_actor_samples,
+            batch_size,
+            self.action_dim,
+        ), action.shape
 
         # TODO(student): Compute Q-values for the sampled state-action pair
-        q_values = ...
+        augmented_obs = obs.unsqueeze(0).repeat(self.num_actor_samples, 1, 1)
+        q_values = self.critic(augmented_obs, action)
+        assert q_values.shape == (
+            self.num_critic_networks,
+            self.num_actor_samples,
+            batch_size,
+        ), q_values.shape
 
         # TODO(student): Compute the actor loss
-        loss = ...
+        loss = -1.0 * torch.mean(q_values)
 
         return loss, torch.mean(self.entropy(action_distribution))
 
@@ -375,7 +397,7 @@ class SoftActorCritic(nn.Module):
             )
 
         # TODO(student): Update the actor
-        actor_info = {}
+        actor_info = self.update_actor(observations)
 
         # TODO(student): Perform either hard or soft target updates.
         # Relevant variables:
